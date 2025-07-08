@@ -73,21 +73,28 @@ def solve(dist_matrix, m, population_size=30, generations=300):
 
     best_solution = None
     best_fitness = float('inf')
+    fitness_per_generation = []
 
     for gen in range(generations):
         new_population = []
         evaluated = []
+
         for individual in population:
             routes = tsp_split_dp(individual, m, dist_matrix)
             fitness = fitness_func(routes, dist_matrix)
             evaluated.append((fitness, individual))
+
             if fitness < best_fitness:
                 best_fitness = fitness
                 best_solution = routes
 
-        evaluated.sort()
-        parents = [ind for _, ind in evaluated[:population_size//2]]
+        fitness_per_generation.append(best_fitness)
 
+        # Chọn nửa tốt nhất làm bố mẹ
+        evaluated.sort()
+        parents = [ind for _, ind in evaluated[:population_size // 2]]
+
+        # Tạo thế hệ mới
         while len(new_population) < population_size:
             p1, p2 = random.sample(parents, 2)
             child = crossover(p1, p2)
@@ -97,4 +104,5 @@ def solve(dist_matrix, m, population_size=30, generations=300):
         population = new_population
 
     total_distance = sum(calculate_route_distance(route, dist_matrix) for route in best_solution)
-    return total_distance, best_solution, best_fitness
+
+    return total_distance, best_solution, best_fitness, fitness_per_generation
