@@ -106,3 +106,118 @@ def solve(dist_matrix, m, population_size=30, generations=300):
     total_distance = sum(calculate_route_distance(route, dist_matrix) for route in best_solution)
 
     return total_distance, best_solution, best_fitness, fitness_per_generation
+
+
+
+# --- NSGA II ---
+# --- Đánh giá cá thể với 2 mục tiêu ---
+def evaluate_individual(individual, dist_matrix, m):
+    routes = tsp_split_dp(individual, m, dist_matrix)
+    max_distance = max(calculate_route_distance(route, dist_matrix) for route in routes)
+    total_distance = sum(calculate_route_distance(route, dist_matrix) for route in routes)
+    return (max_distance, total_distance), routes
+
+# --- Kiểm tra thống trị ---
+def dominates(p, q):
+    return all(x <= y for x, y in zip(p, q)) and any(x < y for x, y in zip(p, q))
+
+# --- Phân loại theo không thống trị ---
+def non_dominated_sort(pop):
+    fronts = [[]]
+    domination_count = {}
+    dominated_set = {}
+
+    for i, (fit_i, _) in enumerate(pop):
+        dominated_set[i] = []
+        domination_count[i] = 0
+        for j, (fit_j, _) in enumerate(pop):
+            if i == j:
+                continue
+            if dominates(fit_i, fit_j):
+                dominated_set[i].append(j)
+            elif dominates(fit_j, fit_i):
+                domination_count[i] += 1
+        if domination_count[i] == 0:
+            fronts[0].append(i)
+
+    rank = [0] * len(pop)
+    i = 0
+    while fronts[i]:
+        next_front = []
+        for p in fronts[i]:
+            for q in dominated_set[p]:
+                domination_count[q] -= 1
+                if domination_count[q] == 0:
+                    rank[q] = i + 1
+                    next_front.append(q)
+        i += 1
+        fronts.append(next_front)
+
+    return fronts[:-1], rank
+
+# --- Tính khoảng cách chen chúc ---
+def compute_crowding_distance(front, pop):
+    distance = [0.0] * len(front)
+    num_objectives = len(pop[0][0])
+
+    for m in range(num_objectives):
+        values = [(i, pop[i][0][m]) for i in front]
+        values.sort(key=lambda x: x[1])
+        min_val = values[0][1]
+        max_val = values[-1][1]
+
+        distance[front.index(values[0][0])] = float('inf')
+        distance[front.index(values[-1][0])] = float('inf')
+
+        if max_val == min_val:
+            continue
+
+        for k in range(1, len(values) - 1):
+            prev = values[k - 1][1]
+            next = values[k + 1][1]
+            d = (next - prev) / (max_val - min_val)
+            distance[front.index(values[k][0])] += d
+
+    return distance
+
+# --- NSGA-II chính ---
+def solve_nsga2(dist_matrix, m, population_size=30, generations=100):
+    n_cities = len(dist_matrix)
+    population = [generate_random_individual(n_cities) for _ in range(population_size)]
+    evaluated = [evaluate_individual(ind, dist_matrix, m) for ind in population]
+
+    for gen in range(generations):
+        offspring = []
+        while len(offspring) < population_size:
+            p1, p2 = random.sample(population, 2)
+            child = crossover(p1, p2)
+            child = local_search(child, dist_matrix, m)
+            offspring.append(child)
+
+        evaluated_offspring = [evaluate_individual(ind, dist_matrix, m) for ind in offspring]
+        combined = evaluated + evaluated_offspring
+        combined_individuals = population + offspring
+
+        fronts, rank = non_dominated_sort(combined)
+        new_population = []
+
+        for front in fronts:
+            if len(new_population) + len(front) > population_size:
+                cd = compute_crowding_distance(front, combined)
+                sorted_front = sorted(zip(front, cd), key=lambda x: -x[1])
+                for idx, _ in sorted_front:
+                    if len(new_population) < population_size:
+                        new_population.append(combined[idx][1])
+            else:
+                for idx in front:
+                    new_population.append(combined[idx][1])
+
+        population = new_population
+        evaluated = [evaluate_individual(ind, dist_matrix, m) for ind in population]
+
+    # Trả về Pareto front cuối cùng
+    final_front, _ = non_dominated_sort(evaluated)
+    pareto_solutions = [evaluated[i] for i in final_front[0]]
+    return pareto_solutions
+
+
