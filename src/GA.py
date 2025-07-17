@@ -219,5 +219,108 @@ def solve_nsga2(dist_matrix, m, population_size=30, generations=100):
     final_front, _ = non_dominated_sort(evaluated)
     pareto_solutions = [evaluated[i] for i in final_front[0]]
     return pareto_solutions
+#--- GASA---
+def run_gasa():
+    NUM_CITIES = 20
+    NUM_SALESMEN = 3
+    POP_SIZE = 50
+    NUM_GENERATIONS = 100
+    MUTATION_RATE = 0.1
+    DEPOT = 0
+    TEMP_INIT = 100
+    TEMP_FINAL = 1
+    ALPHA = 0.95
+
+    np.random.seed(42)
+    coordinates = np.random.rand(NUM_CITIES + 1, 2) * 100
+    dist_matrix = np.linalg.norm(coordinates[:, np.newaxis] - coordinates, axis=2)
+
+    def decode(chrom):
+        routes = [[] for _ in range(NUM_SALESMEN)]
+        current = 0
+        for city in chrom:
+            routes[current].append(city)
+            current = (current + 1) % NUM_SALESMEN
+        return routes
+
+    def total_distance(solution):
+        total = 0
+        for route in solution:
+            if route:
+                full = [DEPOT] + route + [DEPOT]
+                for i in range(len(full) - 1):
+                    total += dist_matrix[full[i], full[i+1]]
+        return total
+
+    def ox(p1, p2):
+        start, end = sorted(random.sample(range(len(p1)), 2))
+        child = [None] * len(p1)
+        child[start:end] = p1[start:end]
+        ptr = 0
+        for city in p2:
+            if city not in child:
+                while child[ptr] is not None:
+                    ptr += 1
+                child[ptr] = city
+        return child
+
+    def mutate(chrom):
+        if random.random() < MUTATION_RATE:
+            i, j = random.sample(range(len(chrom)), 2)
+            chrom[i], chrom[j] = chrom[j], chrom[i]
+        return chrom
+
+    def sa(routes):
+        def rd(route):
+            full = [DEPOT] + route + [DEPOT]
+            return sum(dist_matrix[full[i], full[i+1]] for i in range(len(full)-1))
+
+        result = []
+        for route in routes:
+            if len(route) <= 2:
+                result.append(route)
+                continue
+            current = route.copy()
+            cost = rd(current)
+            T = TEMP_INIT
+            while T > TEMP_FINAL:
+                i, j = sorted(random.sample(range(len(current)), 2))
+                neighbor = current.copy()
+                neighbor[i:j] = reversed(neighbor[i:j])
+                delta = rd(neighbor) - cost
+                if delta < 0 or math.exp(-delta / T) > random.random():
+                    current = neighbor
+                    cost = rd(neighbor)
+                T *= ALPHA
+            result.append(current)
+        return result
+
+    cities = list(range(1, NUM_CITIES + 1))
+    population = [random.sample(cities, len(cities)) for _ in range(POP_SIZE)]
+    best_solution = decode(population[0])
+    best_cost = total_distance(best_solution)
+
+    for gen in range(NUM_GENERATIONS):
+        scored = [(chrom, total_distance(decode(chrom))) for chrom in population]
+        scored.sort(key=lambda x: x[1])
+        new_population = [s[0] for s in scored[:10]]
+
+        while len(new_population) < POP_SIZE:
+            p1, p2 = random.choices([s[0] for s in scored[:25]], k=2)
+            child = ox(p1, p2)
+            child = mutate(child)
+            decoded = decode(child)
+            improved = sa(decoded)
+            flat = [city for route in improved for city in route]
+            new_population.append(flat)
+
+        population = new_population
+        current_best = decode(population[0])
+        current_cost = total_distance(current_best)
+        if current_cost < best_cost:
+            best_solution = current_best
+            best_cost = current_cost
+
+    return best_solution, best_cost
 
 
