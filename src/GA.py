@@ -1,6 +1,6 @@
 import random
 import numpy as np
-
+import math
 # --- Tính khoảng cách tuyến ---
 def calculate_route_distance(route, dist_matrix):
     return sum(dist_matrix[route[i]][route[i+1]] for i in range(len(route)-1)) + dist_matrix[route[-1]][0]
