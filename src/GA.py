@@ -323,4 +323,266 @@ def run_gasa():
 
     return best_solution, best_cost
 
+# --- RLGA (Reinforcement Learning Genetic Algorithm) ---
+class RLGA_mTSP:
+    def __init__(self, distance_matrix: np.ndarray, m: int = 3,
+                 pop_size: int = 50, generations: int = 100,
+                 epsilon: float = 0.1, epsilon_decay: float = 0.99):
+        
+        self.distance_matrix = distance_matrix
+        self.n_cities = len(distance_matrix)
+        self.m = m
+        self.pop_size = pop_size
+        self.generations = generations
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.depot = 0
+        
+        # RL parameters - simplified
+        self.crossover_rates = [0.7, 0.8, 0.9]
+        self.mutation_rates = [0.05, 0.1, 0.15]
+        
+        # Q-table for RL - simplified state representation
+        self.Q = {}
+        self.current_pc = 0.8
+        self.current_pm = 0.1
+        
+        # Performance tracking
+        self.stagnation_count = 0
+        self.last_best_fitness = float('inf')
+
+    def initialize_population(self) -> List[List[int]]:
+        """Initialize population with random permutations"""
+        cities = list(range(1, self.n_cities))  # Exclude depot
+        population = []
+        for _ in range(self.pop_size):
+            individual = cities.copy()
+            random.shuffle(individual)
+            population.append(individual)
+        return population
+
+    def decode_solution(self, chromosome: List[int]) -> List[List[int]]:
+        """Decode chromosome into routes for m salesmen"""
+        routes = [[] for _ in range(self.m)]
+        for i, city in enumerate(chromosome):
+            routes[i % self.m].append(city)
+        return routes
+
+    def calculate_fitness(self, chromosome: List[int]) -> Tuple[float, float, float]:
+        """Calculate fitness metrics: (total_distance, max_route_length, balance_metric)"""
+        routes = self.decode_solution(chromosome)
+        route_distances = []
+        total_distance = 0
+        
+        for route in routes:
+            if len(route) > 0:
+                full_route = [self.depot] + route + [self.depot]
+                distance = sum(self.distance_matrix[full_route[i]][full_route[i + 1]] 
+                             for i in range(len(full_route) - 1))
+                route_distances.append(distance)
+                total_distance += distance
+            else:
+                route_distances.append(0)
+        
+        max_route_length = max(route_distances) if route_distances else 0
+        min_route_length = min(route_distances) if route_distances else 0
+        balance_metric = max_route_length - min_route_length
+        
+        return total_distance, max_route_length, balance_metric
+
+    def get_state(self, population_metrics: List[Tuple[float, float, float]]) -> str:
+        """Simplified state representation"""
+        total_distances = [metrics[0] for metrics in population_metrics]
+        diversity = np.std(total_distances)
+        improvement = self.last_best_fitness - min(total_distances)
+        
+        # Discretize into simple states
+        diversity_level = "high" if diversity > np.mean(total_distances) * 0.1 else "low"
+        improvement_level = "good" if improvement > 0 else "poor"
+        
+        return f"{diversity_level}_{improvement_level}"
+
+    def select_action(self, state: str) -> Tuple[float, float]:
+        """Epsilon-greedy action selection"""
+        if state not in self.Q:
+            self.Q[state] = {}
+            for pc in self.crossover_rates:
+                for pm in self.mutation_rates:
+                    self.Q[state][(pc, pm)] = 0.0
+        
+        if random.random() < self.epsilon:
+            # Exploration
+            return random.choice(self.crossover_rates), random.choice(self.mutation_rates)
+        else:
+            # Exploitation
+            best_action = max(self.Q[state].items(), key=lambda x: x[1])[0]
+            return best_action
+
+    def update_q_value(self, state: str, action: Tuple[float, float], reward: float):
+        """Update Q-value with simplified Q-learning"""
+        alpha = 0.1
+        if state not in self.Q:
+            self.Q[state] = {}
+            for pc in self.crossover_rates:
+                for pm in self.mutation_rates:
+                    self.Q[state][(pc, pm)] = 0.0
+        
+        current_q = self.Q[state][action]
+        self.Q[state][action] = current_q + alpha * (reward - current_q)
+
+    def tournament_selection(self, population: List[List[int]], 
+                           fitness_metrics: List[Tuple[float, float, float]], k: int = 3) -> List[int]:
+        """Tournament selection based on total distance"""
+        indices = random.sample(range(len(population)), k)
+        winner_idx = min(indices, key=lambda i: fitness_metrics[i][0])  # Use total distance
+        return population[winner_idx].copy()
+
+    def crossover_ox(self, parent1: List[int], parent2: List[int]) -> Tuple[List[int], List[int]]:
+        """Order crossover (OX)"""
+        if random.random() > self.current_pc:
+            return parent1.copy(), parent2.copy()
+        
+        size = len(parent1)
+        start, end = sorted(random.sample(range(size), 2))
+        
+        def create_child(p1, p2):
+            child = [None] * size
+            child[start:end] = p1[start:end]
+            
+            pointer = 0
+            for city in p2:
+                if city not in child:
+                    while pointer < size and child[pointer] is not None:
+                        pointer += 1
+                    if pointer < size:
+                        child[pointer] = city
+            return child
+        
+        child1 = create_child(parent1, parent2)
+        child2 = create_child(parent2, parent1)
+        
+        return child1, child2
+
+    def mutate_swap(self, chromosome: List[int]) -> List[int]:
+        """Swap mutation"""
+        child = chromosome.copy()
+        if random.random() < self.current_pm:
+            i, j = random.sample(range(len(child)), 2)
+            child[i], child[j] = child[j], child[i]
+        return child
+
+    def local_search_2opt(self, chromosome: List[int]) -> List[int]:
+        """Simple 2-opt local search for improvement"""
+        best = chromosome.copy()
+        best_metrics = self.calculate_fitness(best)
+        best_fitness = best_metrics[0]  # Total distance
+        
+        # Try a few 2-opt moves
+        for _ in range(5):
+            i, j = sorted(random.sample(range(len(chromosome)), 2))
+            if j - i < 2:
+                continue
+                
+            new_chromosome = best.copy()
+            new_chromosome[i:j] = reversed(new_chromosome[i:j])
+            
+            new_metrics = self.calculate_fitness(new_chromosome)
+            new_fitness = new_metrics[0]  # Total distance
+            if new_fitness < best_fitness:
+                best = new_chromosome
+                best_fitness = new_fitness
+        
+        return best
+
+    def run(self) -> Tuple[List[List[int]], float, float, float, List[float]]:
+        """Main RLGA algorithm - returns (routes, total_distance, max_route_length, balance_metric, fitness_history)"""
+        # Initialize
+        population = self.initialize_population()
+        best_solution = None
+        best_total_distance = float('inf')
+        best_max_route_length = float('inf')
+        best_balance_metric = float('inf')
+        fitness_history = []
+        
+        for generation in range(self.generations):
+            # Evaluate population
+            fitness_metrics = [self.calculate_fitness(ind) for ind in population]
+            total_distances = [metrics[0] for metrics in fitness_metrics]
+            current_best_total = min(total_distances)
+            
+            # Track best solution
+            if current_best_total < best_total_distance:
+                best_total_distance = current_best_total
+                best_idx = total_distances.index(current_best_total)
+                best_solution = self.decode_solution(population[best_idx])
+                best_max_route_length = fitness_metrics[best_idx][1]
+                best_balance_metric = fitness_metrics[best_idx][2]
+                self.stagnation_count = 0
+            else:
+                self.stagnation_count += 1
+            
+            fitness_history.append(best_total_distance)
+            
+            # RL state and action selection
+            state = self.get_state(fitness_metrics)
+            self.current_pc, self.current_pm = self.select_action(state)
+            
+            # Create new population
+            new_population = []
+            
+            # Keep best individuals (elitism)
+            sorted_indices = sorted(range(len(population)), key=lambda i: total_distances[i])
+            elite_count = max(1, self.pop_size // 10)
+            for i in range(elite_count):
+                new_population.append(population[sorted_indices[i]].copy())
+            
+            # Generate offspring
+            while len(new_population) < self.pop_size:
+                parent1 = self.tournament_selection(population, fitness_metrics)
+                parent2 = self.tournament_selection(population, fitness_metrics)
+                
+                child1, child2 = self.crossover_ox(parent1, parent2)
+                child1 = self.mutate_swap(child1)
+                child2 = self.mutate_swap(child2)
+                
+                # Apply local search occasionally
+                if random.random() < 0.1:
+                    child1 = self.local_search_2opt(child1)
+                if random.random() < 0.1:
+                    child2 = self.local_search_2opt(child2)
+                
+                new_population.extend([child1, child2])
+            
+            # Trim to population size
+            population = new_population[:self.pop_size]
+            
+            # Calculate reward and update Q-value
+            improvement = self.last_best_fitness - current_best_total
+            reward = improvement / (abs(self.last_best_fitness) + 1e-6)
+            self.update_q_value(state, (self.current_pc, self.current_pm), reward)
+            self.last_best_fitness = current_best_total
+            
+            # Decay epsilon
+            self.epsilon *= self.epsilon_decay
+        
+        return best_solution, best_total_distance, best_max_route_length, best_balance_metric, fitness_history
+
+# --- Hàm chạy RLGA ---
+def solve_rlga(distance_matrix, m, pop_size=50, generations=100):
+    """Wrapper function for RLGA to match the interface of other algorithms"""
+    rlga = RLGA_mTSP(distance_matrix, m=m, pop_size=pop_size, generations=generations)
+    routes, total_distance, max_route_length, balance_metric, fitness_history = rlga.run()
+    return routes, total_distance, max_route_length, balance_metric, fitness_history
+
+# --- Hàm phát hiện hội tụ ---
+def detect_convergence(generation_fitness, tolerance=1e-3, window=5):
+    """Detect convergence in fitness evolution"""
+    if len(generation_fitness) < window:
+        return len(generation_fitness)
+    for i in range(len(generation_fitness) - window):
+        window_values = generation_fitness[i:i+window]
+        if max(window_values) - min(window_values) < tolerance:
+            return i + window
+    return len(generation_fitness)
+
 
