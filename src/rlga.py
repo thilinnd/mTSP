@@ -1,135 +1,158 @@
-import numpy as np
 import random
 import math
+import copy
 
-# ==== THÔNG SỐ ====
-NUM_CITIES = 20      # Số điểm cần đến (không tính depot)
-NUM_SALESMEN = 3     # Số người giao hàng
-POP_SIZE = 50        # Kích thước quần thể
-NUM_GENERATIONS = 100
-MUTATION_RATE = 0.1
-DEPOT = 0            # Điểm bắt đầu/kết thúc
-TEMP_INIT = 100
-TEMP_FINAL = 1
-ALPHA = 0.95
+class RLGA:
+    def __init__(self, tsp_data, salesman_count, pop_size=50, generations=500):
+        self.tsp_data = tsp_data
+        self.salesman_count = salesman_count
+        self.pop_size = pop_size
+        self.generations = generations
+        self.num_cities = len(tsp_data)
 
-# ==== TẠO DỮ LIỆU ====
-np.random.seed(42)
-coordinates = np.random.rand(NUM_CITIES + 1, 2) * 100  # +1 vì có depot
-distance_matrix = np.linalg.norm(coordinates[:, np.newaxis] - coordinates, axis=2)
+        self.q_table = {}  # Q-table cho reinforcement learning
+        self.actions = [(0.6, 0.01), (0.7, 0.02), (0.8, 0.05), (0.9, 0.1)]  # (Pc, Pm)
+        self.epsilon = 0.2
+        self.epsilon_decay = 0.995
+        self.alpha = 0.1
+        self.gamma = 0.9
 
-# ==== TÍNH TỔNG KHOẢNG CÁCH CHO MỘT GIẢI PHÁP ====
-def calculate_total_distance(solution):
-    total_distance = 0
-    for route in solution:
-        if len(route) == 0:
-            continue
-        full_route = [DEPOT] + route + [DEPOT]
-        for i in range(len(full_route) - 1):
-            total_distance += distance_matrix[full_route[i], full_route[i+1]]
-    return total_distance
+    def initialize_population(self):
+        population = []
+        for _ in range(self.pop_size):
+            perm = list(range(self.num_cities))
+            random.shuffle(perm)
+            population.append(perm)
+        return population
 
-# ==== MÃ HÓA GIẢI PHÁP ====
-# Dạng: List gồm m tuyến (m salesman), mỗi tuyến là list các city (không chứa depot)
-def decode_chromosome(chrom):
-    routes = [[] for _ in range(NUM_SALESMEN)]
-    current = 0
-    for city in chrom:
-        routes[current].append(city)
-        current = (current + 1) % NUM_SALESMEN
-    return routes
+    def evaluate_fitness(self, individual):
+        routes = self.tsp_split_dp(individual)
+        distances = [self.route_distance(route) for route in routes]
+        return max(distances), sum(distances), routes
 
-# ==== KHỞI TẠO QUẦN THỂ ====
-def init_population():
-    cities = list(range(1, NUM_CITIES + 1))  # Bỏ depot (0)
-    population = []
-    for _ in range(POP_SIZE):
-        chrom = cities.copy()
-        random.shuffle(chrom)
-        population.append(chrom)
-    return population
+    def tsp_split_dp(self, chromosome):
+        n = len(chromosome)
+        dp = [[math.inf for _ in range(self.salesman_count + 1)] for _ in range(n + 1)]
+        path = [[-1 for _ in range(self.salesman_count + 1)] for _ in range(n + 1)]
+        dp[0][0] = 0
+        for i in range(n + 1):
+            for k in range(self.salesman_count):
+                if dp[i][k] < math.inf:
+                    for j in range(i + 1, n + 1):
+                        route = chromosome[i:j]
+                        dist = self.route_distance(route)
+                        if dp[j][k + 1] > dp[i][k] + dist:
+                            dp[j][k + 1] = dp[i][k] + dist
+                            path[j][k + 1] = i
+        routes = []
+        idx = n
+        for k in range(self.salesman_count, 0, -1):
+            i = path[idx][k]
+            routes.append(chromosome[i:idx])
+            idx = i
+        return routes[::-1]
 
-# ==== LAI GHÉP OX ====
-def crossover(p1, p2):
-    start, end = sorted(random.sample(range(len(p1)), 2))
-    child = [None] * len(p1)
-    child[start:end] = p1[start:end]
-    pointer = 0
-    for city in p2:
-        if city not in child:
-            while child[pointer] is not None:
-                pointer += 1
-            child[pointer] = city
-    return child
+    def route_distance(self, route):
+        dist = 0
+        for i in range(len(route)):
+            dist += self.tsp_data[route[i - 1]][route[i]]
+        return dist
 
-# ==== ĐỘT BIẾN: hoán đổi 2 thành phố ====
-def mutate(chrom):
-    if random.random() < MUTATION_RATE:
-        i, j = random.sample(range(len(chrom)), 2)
-        chrom[i], chrom[j] = chrom[j], chrom[i]
-    return chrom
+    def crossover(self, p1, p2):
+        size = len(p1)
+        a, b = sorted(random.sample(range(size), 2))
+        child = [None] * size
+        child[a:b] = p1[a:b]
+        p2_filtered = [x for x in p2 if x not in child[a:b]]
+        j = 0
+        for i in range(size):
+            if child[i] is None:
+                child[i] = p2_filtered[j]
+                j += 1
+        return child
 
-# ==== SIMULATED ANNEALING TRÊN TỪNG SALES ROUTE ====
-def simulated_annealing(routes, temp_init, temp_final, alpha):
-    new_routes = []
-    for route in routes:
-        if len(route) <= 2:
-            new_routes.append(route)
-            continue
+    def mutate(self, individual):
+        a, b = sorted(random.sample(range(len(individual)), 2))
+        individual[a], individual[b] = individual[b], individual[a]
 
-        current = route.copy()
-        current_cost = route_distance(current)
-        T = temp_init
-        while T > temp_final:
-            i, j = sorted(random.sample(range(len(current)), 2))
-            neighbor = current.copy()
-            neighbor[i:j] = reversed(neighbor[i:j])
-            neighbor_cost = route_distance(neighbor)
-            delta = neighbor_cost - current_cost
-            if delta < 0 or math.exp(-delta / T) > random.random():
-                current = neighbor
-                current_cost = neighbor_cost
-            T *= alpha
-        new_routes.append(current)
-    return new_routes
+    def local_search(self, routes):
+        best_routes = copy.deepcopy(routes)
+        best_dist = sum(self.route_distance(r) for r in best_routes)
+        for _ in range(10):
+            temp_routes = copy.deepcopy(best_routes)
+            r_idx = random.randint(0, len(temp_routes) - 1)
+            if len(temp_routes[r_idx]) >= 2:
+                a, b = sorted(random.sample(range(len(temp_routes[r_idx])), 2))
+                temp_routes[r_idx][a], temp_routes[r_idx][b] = temp_routes[r_idx][b], temp_routes[r_idx][a]
+                temp_dist = sum(self.route_distance(r) for r in temp_routes)
+                if temp_dist < best_dist:
+                    best_dist = temp_dist
+                    best_routes = temp_routes
+        return best_routes
 
-# ==== TÍNH KHOẢNG CÁCH MỘT ROUTE ====
-def route_distance(route):
-    if not route:
-        return 0
-    full_route = [DEPOT] + route + [DEPOT]
-    return sum(distance_matrix[full_route[i], full_route[i+1]] for i in range(len(full_route) - 1))
+    def get_state(self, population):
+        distances = [self.evaluate_fitness(ind)[1] for ind in population]
+        diversity = len(set(tuple(ind) for ind in population))
+        improvement = max(distances) - min(distances)
+        convergence = sum(distances) / len(distances)
+        return (diversity, improvement, convergence)
 
-# ==== MAIN GASA LOOP ====
-population = init_population()
-best_solution = decode_chromosome(population[0])
-best_cost = calculate_total_distance(best_solution)
+    def select_action(self, state):
+        if random.random() < self.epsilon:
+            return random.choice(self.actions)
+        q_values = self.q_table.get(state, {})
+        if not q_values:
+            return random.choice(self.actions)
+        return max(q_values, key=q_values.get)
 
-for gen in range(NUM_GENERATIONS):
-    scored = [(chrom, calculate_total_distance(decode_chromosome(chrom))) for chrom in population]
-    scored.sort(key=lambda x: x[1])
-    new_population = [s[0] for s in scored[:10]]  # elitism
+    def update_q_table(self, state, action, reward, next_state):
+        if state not in self.q_table:
+            self.q_table[state] = {}
+        if action not in self.q_table[state]:
+            self.q_table[state][action] = 0
+        next_q = max(self.q_table.get(next_state, {}).values(), default=0)
+        self.q_table[state][action] += self.alpha * (reward + self.gamma * next_q - self.q_table[state][action])
 
-    while len(new_population) < POP_SIZE:
-        p1, p2 = random.choices([s[0] for s in scored[:25]], k=2)
-        child = crossover(p1, p2)
-        child = mutate(child)
-        decoded = decode_chromosome(child)
-        improved = simulated_annealing(decoded, TEMP_INIT, TEMP_FINAL, ALPHA)
-        flat = [city for route in improved for city in route]
-        new_population.append(flat)
+    def run(self):
+        population = self.initialize_population()
+        best_total_distance = float('inf')
+        best_solution = None
 
-    population = new_population
-    current_best = decode_chromosome(population[0])
-    current_cost = calculate_total_distance(current_best)
-    if current_cost < best_cost:
-        best_solution = current_best
-        best_cost = current_cost
+        for gen in range(self.generations):
+            state = self.get_state(population)
+            action = self.select_action(state)
+            Pc, Pm = action
 
-    print(f"Generation {gen+1}: Best Cost = {best_cost:.2f}")
+            new_population = []
+            for _ in range(self.pop_size):
+                p1, p2 = random.sample(population, 2)
+                if random.random() < Pc:
+                    child = self.crossover(p1, p2)
+                else:
+                    child = p1[:]
+                if random.random() < Pm:
+                    self.mutate(child)
+                _, _, routes = self.evaluate_fitness(child)
+                improved_routes = self.local_search(routes)
+                flattened = [city for r in improved_routes for city in r]
+                new_population.append(flattened)
 
-# ==== KẾT QUẢ ====
-print("\nBest solution (routes):")
-for i, route in enumerate(best_solution):
-    print(f"Salesman {i+1}: { [DEPOT] + route + [DEPOT] }")
-print("Total cost:", round(best_cost, 2))
+            population = new_population
+            next_state = self.get_state(population)
+            _, total_distances, _ = zip(*(self.evaluate_fitness(ind) for ind in population))
+            avg_distance = sum(total_distances) / len(total_distances)
+            reward = -avg_distance
+            self.update_q_table(state, action, reward, next_state)
+            self.epsilon *= self.epsilon_decay
+
+            gen_best_idx = total_distances.index(min(total_distances))
+            if total_distances[gen_best_idx] < best_total_distance:
+                best_total_distance = total_distances[gen_best_idx]
+                _, _, best_solution = self.evaluate_fitness(population[gen_best_idx])
+
+            print(f"Generation {gen}: Best Total Distance = {best_total_distance:.2f}")
+
+        print("\nBest routes per salesman:")
+        for idx, route in enumerate(best_solution):
+            print(f"Salesman {idx+1}: {route} (distance: {self.route_distance(route):.2f})")
+        print(f"Total Distance: {sum(self.route_distance(r) for r in best_solution):.2f}")
