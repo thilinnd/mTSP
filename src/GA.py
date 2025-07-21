@@ -1,6 +1,9 @@
 import random
 import numpy as np
 import math
+from typing import List, Tuple, Dict, Optional
+import time
+
 # --- Tính khoảng cách tuyến ---
 def calculate_route_distance(route, dist_matrix):
     return sum(dist_matrix[route[i]][route[i+1]] for i in range(len(route)-1)) + dist_matrix[route[-1]][0]
@@ -111,114 +114,208 @@ def solve(dist_matrix, m, population_size=30, generations=300):
 
 # --- NSGA II ---
 # --- Đánh giá cá thể với 2 mục tiêu ---
-def evaluate_individual(individual, dist_matrix, m):
-    routes = tsp_split_dp(individual, m, dist_matrix)
-    max_distance = max(calculate_route_distance(route, dist_matrix) for route in routes)
-    total_distance = sum(calculate_route_distance(route, dist_matrix) for route in routes)
-    return (max_distance, total_distance), routes
+# --- Đánh giá đa mục tiêu ---
+# def evaluate_objectives(individual, dist_matrix, m):
+#     routes = tsp_split_dp(individual, m, dist_matrix)
+#     total_distance = sum(calculate_route_distance(route, dist_matrix) for route in routes)
+#     max_route_distance = max(calculate_route_distance(route, dist_matrix) for route in routes)
+#     return total_distance, max_route_distance, routes
 
-# --- Kiểm tra thống trị ---
-def dominates(p, q):
-    return all(x <= y for x, y in zip(p, q)) and any(x < y for x, y in zip(p, q))
+# # --- Pareto Dominance ---
+# def dominates(ind1, ind2):
+#     return all(x <= y for x, y in zip(ind1[:2], ind2[:2])) and any(x < y for x, y in zip(ind1[:2], ind2[:2]))
 
-# --- Phân loại theo không thống trị ---
-def non_dominated_sort(pop):
-    fronts = [[]]
-    domination_count = {}
-    dominated_set = {}
+# # --- Non-dominated Sorting ---
+# def non_dominated_sort(population):
+#     fronts = [[]]
+#     domination_count = {}
+#     dominated_solutions = {}
 
-    for i, (fit_i, _) in enumerate(pop):
-        dominated_set[i] = []
-        domination_count[i] = 0
-        for j, (fit_j, _) in enumerate(pop):
-            if i == j:
-                continue
-            if dominates(fit_i, fit_j):
-                dominated_set[i].append(j)
-            elif dominates(fit_j, fit_i):
-                domination_count[i] += 1
-        if domination_count[i] == 0:
-            fronts[0].append(i)
+#     for i, p in enumerate(population):
+#         dominated_solutions[i] = []
+#         domination_count[i] = 0
+#         for j, q in enumerate(population):
+#             if dominates(p, q):
+#                 dominated_solutions[i].append(j)
+#             elif dominates(q, p):
+#                 domination_count[i] += 1
+#         if domination_count[i] == 0:
+#             fronts[0].append(i)
 
-    rank = [0] * len(pop)
-    i = 0
-    while fronts[i]:
-        next_front = []
-        for p in fronts[i]:
-            for q in dominated_set[p]:
-                domination_count[q] -= 1
-                if domination_count[q] == 0:
-                    rank[q] = i + 1
-                    next_front.append(q)
-        i += 1
-        fronts.append(next_front)
+#     rank = [0] * len(population)
+#     i = 0
+#     while fronts[i]:
+#         next_front = []
+#         for p in fronts[i]:
+#             for q in dominated_solutions[p]:
+#                 domination_count[q] -= 1
+#                 if domination_count[q] == 0:
+#                     rank[q] = i + 1
+#                     next_front.append(q)
+#         i += 1
+#         fronts.append(next_front)
 
-    return fronts[:-1], rank
+#     return fronts[:-1], rank
 
-# --- Tính khoảng cách chen chúc ---
-def compute_crowding_distance(front, pop):
-    distance = [0.0] * len(front)
-    num_objectives = len(pop[0][0])
+# # --- Crowding Distance ---
+# def compute_crowding_distance(front, population):
+#     distance = [0.0] * len(front)
+#     for m in range(2):  # 0: total_distance, 1: max_route
+#         values = [(population[i][m], i) for i in front]
+#         values.sort()
+#         min_value = values[0][0]
+#         max_value = values[-1][0]
+#         distance[front.index(values[0][1])] = float('inf')
+#         distance[front.index(values[-1][1])] = float('inf')
+#         for k in range(1, len(front) - 1):
+#             prev = values[k - 1][0]
+#             next = values[k + 1][0]
+#             if max_value - min_value == 0:
+#                 dist = 0
+#             else:
+#                 dist = (next - prev) / (max_value - min_value)
+#             distance[front.index(values[k][1])] += dist
+#     return distance
 
-    for m in range(num_objectives):
-        values = [(i, pop[i][0][m]) for i in front]
-        values.sort(key=lambda x: x[1])
-        min_val = values[0][1]
-        max_val = values[-1][1]
+# # --- NSGA-II chính ---
+# def solve_nsga2(dist_matrix, m, population_size=30, generations=100):
+#     n_cities = len(dist_matrix)
+#     population = [generate_random_individual(n_cities) for _ in range(population_size)]
 
-        distance[front.index(values[0][0])] = float('inf')
-        distance[front.index(values[-1][0])] = float('inf')
+#     evaluated = []
+#     for ind in population:
+#         obj = evaluate_objectives(ind, dist_matrix, m)
+#         evaluated.append(obj)
 
-        if max_val == min_val:
-            continue
+#     best_fitness_per_gen = []  # Ghi lại max-route tốt nhất mỗi thế hệ
 
-        for k in range(1, len(values) - 1):
-            prev = values[k - 1][1]
-            next = values[k + 1][1]
-            d = (next - prev) / (max_val - min_val)
-            distance[front.index(values[k][0])] += d
+#     for gen in range(generations):
+#         # --- Tạo con ---
+#         offspring = []
+#         while len(offspring) < population_size:
+#             p1, p2 = random.sample(population, 2)
+#             child = crossover(p1, p2)
+#             child = local_search(child, dist_matrix, m)
+#             offspring.append(child)
 
-    return distance
+#         offspring_eval = [evaluate_objectives(ind, dist_matrix, m) for ind in offspring]
 
-# --- NSGA-II chính ---
-def solve_nsga2(dist_matrix, m, population_size=30, generations=100):
-    n_cities = len(dist_matrix)
-    population = [generate_random_individual(n_cities) for _ in range(population_size)]
-    evaluated = [evaluate_individual(ind, dist_matrix, m) for ind in population]
+#         # --- Kết hợp cha + con ---
+#         combined = evaluated + offspring_eval
+#         combined_population = population + offspring
+
+#         # --- Pareto sort ---
+#         fronts, rank = non_dominated_sort(combined)
+
+#         new_population = []
+#         new_evaluated = []
+
+#         for front in fronts:
+#             if len(new_population) + len(front) > population_size:
+#                 crowding_dist = compute_crowding_distance(front, combined)
+#                 sorted_front = [x for _, x in sorted(zip(crowding_dist, front), reverse=True)]
+#                 for idx in sorted_front:
+#                     if len(new_population) < population_size:
+#                         new_population.append(combined_population[idx])
+#                         new_evaluated.append(combined[idx])
+#             else:
+#                 for idx in front:
+#                     new_population.append(combined_population[idx])
+#                     new_evaluated.append(combined[idx])
+
+#         population = new_population
+#         evaluated = new_evaluated
+
+#         # --- Ghi lại fitness tốt nhất mỗi thế hệ ---
+#         best_fitness = min(ind[1] for ind in evaluated)
+#         best_fitness_per_gen.append(best_fitness)
+
+#     # --- Trả về các nghiệm không trội (Pareto Front 1) ---
+#     pareto_front = [ind for ind, val in zip(population, evaluated) if evaluated.count(val) == 1]
+#     final_routes = [evaluate_objectives(ind, dist_matrix, m)[2] for ind in pareto_front]
+
+#     return final_routes, best_fitness_per_gen
+
+def calculate_route_distance(route, matrix):
+    return sum(matrix[route[i]][route[i + 1]] for i in range(len(route) - 1)) + matrix[route[-1]][route[0]]
+
+def split_route(route, m):
+    chunk_size = len(route) // m
+    return [route[i*chunk_size:(i+1)*chunk_size] for i in range(m-1)] + [route[(m-1)*chunk_size:]]
+
+def evaluate_fitness(individual, m, matrix):
+    routes = split_route(individual, m)
+    route_lengths = [calculate_route_distance([0] + r + [0], matrix) for r in routes]
+    longest = max(route_lengths)
+    balance = np.std(route_lengths)
+    return longest, balance, routes
+
+def initialize_population(pop_size, num_cities):
+    return [random.sample(range(1, num_cities), num_cities - 1) for _ in range(pop_size)]
+
+def tournament_selection(population, fitnesses):
+    i, j = random.sample(range(len(population)), 2)
+    return population[i] if fitnesses[i][0] < fitnesses[j][0] else population[j]
+
+def crossover(parent1, parent2):
+    size = len(parent1)
+    a, b = sorted(random.sample(range(size), 2))
+    child_p1 = parent1[a:b]
+    child = [gene for gene in parent2 if gene not in child_p1]
+    return child[:a] + child_p1 + child[a:]
+
+def mutate(individual, mutation_rate=0.1):
+    for _ in range(int(len(individual) * mutation_rate)):
+        a, b = random.sample(range(len(individual)), 2)
+        individual[a], individual[b] = individual[b], individual[a]
+    return individual
+
+def solve_nsga2(matrix, m, pop_size=100, generations=300):
+    num_cities = len(matrix)
+    population = initialize_population(pop_size, num_cities)
+    fitness_per_generation = []
+    
+    # no_improve_count = 0
+    # best_so_far = float('inf')
+
+    start_time = time.time()
 
     for gen in range(generations):
-        offspring = []
-        while len(offspring) < population_size:
-            p1, p2 = random.sample(population, 2)
-            child = crossover(p1, p2)
-            child = local_search(child, dist_matrix, m)
-            offspring.append(child)
+        fitnesses = [evaluate_fitness(ind, m, matrix) for ind in population]
+        current_best = min(f[0] for f in fitnesses)
+        fitness_per_generation.append(current_best)
 
-        evaluated_offspring = [evaluate_individual(ind, dist_matrix, m) for ind in offspring]
-        combined = evaluated + evaluated_offspring
-        combined_individuals = population + offspring
+                # Early stopping logic
+        # if current_best < best_so_far - 1e-3:
+        #     best_so_far = current_best
+        #     no_improve_count = 0
+        # else:
+        #     no_improve_count += 1
 
-        fronts, rank = non_dominated_sort(combined)
+        # if gen % 10 == 0:
+        #     print(f"[m={m}] Thế hệ {gen}, fitness tốt nhất: {current_best:.2f}")
+
+        # if no_improve_count >= 30:
+        #     print(f"[m={m}] Dừng sớm tại thế hệ {gen}")
+        #     break
+
         new_population = []
-
-        for front in fronts:
-            if len(new_population) + len(front) > population_size:
-                cd = compute_crowding_distance(front, combined)
-                sorted_front = sorted(zip(front, cd), key=lambda x: -x[1])
-                for idx, _ in sorted_front:
-                    if len(new_population) < population_size:
-                        new_population.append(combined[idx][1])
-            else:
-                for idx in front:
-                    new_population.append(combined[idx][1])
-
+        for _ in range(pop_size):
+            p1 = tournament_selection(population, fitnesses)
+            p2 = tournament_selection(population, fitnesses)
+            child = crossover(p1, p2)
+            child = mutate(child)
+            new_population.append(child)
+        
         population = new_population
-        evaluated = [evaluate_individual(ind, dist_matrix, m) for ind in population]
+    
+    # Lấy lời giải tốt nhất
+    best_index = np.argmin([f[0] for f in fitnesses])
+    best_fitness, best_balance, best_routes = fitnesses[best_index]
+    end_time = time.time()
+    
+    return best_fitness, best_balance, best_routes, fitness_per_generation, end_time - start_time, gen + 1
 
-    # Trả về Pareto front cuối cùng
-    final_front, _ = non_dominated_sort(evaluated)
-    pareto_solutions = [evaluated[i] for i in final_front[0]]
-    return pareto_solutions
 #--- GASA---
 def run_gasa():
     NUM_CITIES = 20
