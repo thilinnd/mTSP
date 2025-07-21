@@ -275,8 +275,10 @@ def solve_nsga2(matrix, m, pop_size=100, generations=300):
     population = initialize_population(pop_size, num_cities)
     fitness_per_generation = []
     
-    # no_improve_count = 0
-    # best_so_far = float('inf')
+    no_improve_count = 0
+    best_so_far = float('inf')
+    gen_best_found = 0  # Thế hệ mà best_so_far được ghi nhận
+
 
     start_time = time.time()
 
@@ -286,18 +288,18 @@ def solve_nsga2(matrix, m, pop_size=100, generations=300):
         fitness_per_generation.append(current_best)
 
                 # Early stopping logic
-        # if current_best < best_so_far - 1e-3:
-        #     best_so_far = current_best
-        #     no_improve_count = 0
-        # else:
-        #     no_improve_count += 1
+        if current_best < best_so_far - 1e-3:
+            best_so_far = current_best
+            no_improve_count = 0
+        else:
+            no_improve_count += 1
 
         # if gen % 10 == 0:
         #     print(f"[m={m}] Thế hệ {gen}, fitness tốt nhất: {current_best:.2f}")
 
-        # if no_improve_count >= 30:
-        #     print(f"[m={m}] Dừng sớm tại thế hệ {gen}")
-        #     break
+        if no_improve_count >= 50:
+            print(f"[m={m}] Dừng sớm tại thế hệ {gen}")
+            break
 
         new_population = []
         for _ in range(pop_size):
@@ -314,7 +316,7 @@ def solve_nsga2(matrix, m, pop_size=100, generations=300):
     best_fitness, best_balance, best_routes = fitnesses[best_index]
     end_time = time.time()
     
-    return best_fitness, best_balance, best_routes, fitness_per_generation, end_time - start_time, gen + 1
+    return best_fitness, best_balance, best_routes, fitness_per_generation, end_time - start_time, gen + 1 if no_improve_count < 30 else gen
 
 #--- GASA---
 def run_gasa():
