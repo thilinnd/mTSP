@@ -1,5 +1,6 @@
 import random
 import numpy as np
+from tqdm import tqdm
 
 # --- Tính khoảng cách tuyến ---
 def calculate_route_distance(route, dist_matrix):
@@ -67,7 +68,8 @@ def local_search(route, dist_matrix, m):
     return best
 
 # --- Hàm chính giải bài toán m-TSP ---
-def solve(dist_matrix, m, population_size=30, generations=300):
+
+def solve(dist_matrix, m, population_size=100, generations=300):
     n_cities = len(dist_matrix)
     population = [generate_random_individual(n_cities) for _ in range(population_size)]
 
@@ -75,7 +77,8 @@ def solve(dist_matrix, m, population_size=30, generations=300):
     best_fitness = float('inf')
     fitness_per_generation = []
 
-    for gen in range(generations):
+    # Dùng tqdm để theo dõi tiến trình
+    for gen in tqdm(range(generations), desc=f"Chạy GA (m = {m})", ncols=80):
         new_population = []
         evaluated = []
 
@@ -89,6 +92,10 @@ def solve(dist_matrix, m, population_size=30, generations=300):
                 best_solution = routes
 
         fitness_per_generation.append(best_fitness)
+
+        # Log tiến trình mỗi 20 thế hệ
+        if gen % 20 == 0 or gen == generations - 1:
+            print(f"[Gen {gen:3d}] Best fitness: {best_fitness:.2f}")
 
         # Chọn nửa tốt nhất làm bố mẹ
         evaluated.sort()
@@ -106,7 +113,6 @@ def solve(dist_matrix, m, population_size=30, generations=300):
     total_distance = sum(calculate_route_distance(route, dist_matrix) for route in best_solution)
 
     return total_distance, best_solution, best_fitness, fitness_per_generation
-
 
 
 # --- NSGA II ---
