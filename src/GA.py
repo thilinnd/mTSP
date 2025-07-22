@@ -1,24 +1,35 @@
 import random
 import numpy as np
+import math
+import time
+from functools import lru_cache
+from typing import List, Tuple
+from tqdm import tqdm
+from joblib import Parallel, delayed
 
-# --- Tính khoảng cách tuyến ---
+# --- Hàm cache khoảng cách để tăng tốc ---
+@lru_cache(maxsize=None)
+def cached_route_distance(route_tuple):
+    return sum(dist_matrix[route_tuple[i]][route_tuple[i + 1]] for i in range(len(route_tuple) - 1)) + dist_matrix[route_tuple[-1]][0]
+
+# --- Tính khoảng cách một route ---
 def calculate_route_distance(route, dist_matrix):
-    return sum(dist_matrix[route[i]][route[i+1]] for i in range(len(route)-1)) + dist_matrix[route[-1]][0]
+    return cached_route_distance(tuple(route))
 
-# --- Dynamic Programming chia tuyến ---
-def tsp_split_dp(route, m, dist_matrix):
+# --- Hàm gốc tsp_split_dp dùng DP (chính xác nhưng chậm) ---
+def tsp_split_dp_exact(route, m, dist_matrix):
     n = len(route)
-    dp = [[float('inf')] * (m+1) for _ in range(n+1)]
-    path = [[-1] * (m+1) for _ in range(n+1)]
+    dp = [[float('inf')] * (m + 1) for _ in range(n + 1)]
+    path = [[-1] * (m + 1) for _ in range(n + 1)]
     dp[0][0] = 0
 
-    for i in range(1, n+1):
-        for k in range(1, m+1):
+    for i in range(1, n + 1):
+        for k in range(1, m + 1):
             for j in range(i):
                 sub_route = [0] + route[j:i] + [0]
                 cost = calculate_route_distance(sub_route, dist_matrix)
-                if max(dp[j][k-1], cost) < dp[i][k]:
-                    dp[i][k] = max(dp[j][k-1], cost)
+                if max(dp[j][k - 1], cost) < dp[i][k]:
+                    dp[i][k] = max(dp[j][k - 1], cost)
                     path[i][k] = j
 
     routes = []
@@ -26,9 +37,19 @@ def tsp_split_dp(route, m, dist_matrix):
     while k > 0:
         j = path[i][k]
         routes.append([0] + route[j:i] + [0])
-        i, k = j, k-1
+        i, k = j, k - 1
 
     return routes[::-1]
+
+# --- Greedy split nhanh để thay thế trong quá trình tiến hoá ---
+def tsp_split_dp(route, m, dist_matrix):
+    avg_len = len(route) // m
+    routes = []
+    for i in range(m):
+        start = i * avg_len
+        end = (i + 1) * avg_len if i < m - 1 else len(route)
+        routes.append([0] + route[start:end] + [0])
+    return routes
 
 # --- Tính fitness (min-max) ---
 def fitness_func(routes, dist_matrix):
@@ -54,8 +75,10 @@ def local_search(route, dist_matrix, m):
     best_routes = tsp_split_dp(best, m, dist_matrix)
     best_fitness = fitness_func(best_routes, dist_matrix)
 
-    for _ in range(10):
+    for _ in range(5):  # giảm từ 10 xuống 5 lần
         i, j = random.sample(range(len(route)), 2)
+        if i == j:
+            continue
         new = best[:]
         new[i], new[j] = new[j], new[i]
         new_routes = tsp_split_dp(new, m, dist_matrix)
@@ -67,8 +90,10 @@ def local_search(route, dist_matrix, m):
     return best
 
 # --- Hàm chính giải bài toán m-TSP ---
+def solve(dist_matrix_input, m, population_size=100, generations=300):
+    global dist_matrix
+    dist_matrix = dist_matrix_input  # cho phép cached_route_distance truy cập được
 
-def solve(dist_matrix, m, population_size=100, generations=300):
     n_cities = len(dist_matrix)
     population = [generate_random_individual(n_cities) for _ in range(population_size)]
 
@@ -76,31 +101,32 @@ def solve(dist_matrix, m, population_size=100, generations=300):
     best_fitness = float('inf')
     fitness_per_generation = []
 
-    # Dùng tqdm để theo dõi tiến trình
     for gen in tqdm(range(generations), desc=f"Chạy GA (m = {m})", ncols=80):
-        new_population = []
-        evaluated = []
+        # Tính fitness song song
+        evaluated = Parallel(n_jobs=-1)(
+            delayed(lambda ind: (
+                fitness_func(tsp_split_dp(ind, m, dist_matrix), dist_matrix),
+                ind
+            ))(individual)
+            for individual in population
+        )
 
-        for individual in population:
-            routes = tsp_split_dp(individual, m, dist_matrix)
-            fitness = fitness_func(routes, dist_matrix)
-            evaluated.append((fitness, individual))
-
+        for fitness, individual in evaluated:
             if fitness < best_fitness:
                 best_fitness = fitness
-                best_solution = routes
+                best_solution = individual
 
         fitness_per_generation.append(best_fitness)
 
-        # Log tiến trình mỗi 20 thế hệ
         if gen % 20 == 0 or gen == generations - 1:
             print(f"[Gen {gen:3d}] Best fitness: {best_fitness:.2f}")
 
-        # Chọn nửa tốt nhất làm bố mẹ
+        # Chọn nửa tốt nhất
         evaluated.sort()
         parents = [ind for _, ind in evaluated[:population_size // 2]]
 
         # Tạo thế hệ mới
+        new_population = []
         while len(new_population) < population_size:
             p1, p2 = random.sample(parents, 2)
             child = crossover(p1, p2)
@@ -109,9 +135,11 @@ def solve(dist_matrix, m, population_size=100, generations=300):
 
         population = new_population
 
-    total_distance = sum(calculate_route_distance(route, dist_matrix) for route in best_solution)
+    # Sau khi tối ưu xong → chia lại bằng tsp_split_dp_exact để có kết quả chính xác
+    final_routes = tsp_split_dp_exact(best_solution, m, dist_matrix)
+    total_distance = sum(calculate_route_distance(route, dist_matrix) for route in final_routes)
 
-    return total_distance, best_solution, best_fitness, fitness_per_generation
+    return total_distance, final_routes, best_fitness, fitness_per_generation
 
 
 # --- NSGA II ---
