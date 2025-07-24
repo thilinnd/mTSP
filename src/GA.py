@@ -303,7 +303,10 @@ def mutate(individual, mutation_rate=0.1):
 def solve_nsga2(matrix, m, pop_size=100, generations=300):
     num_cities = len(matrix)
     population = initialize_population(pop_size, num_cities)
+    best_generation = 0
     fitness_per_generation = []
+    best_fitness_overall = float('inf')
+
     
     no_improve_count = 0
     best_so_far = float('inf')
@@ -314,12 +317,18 @@ def solve_nsga2(matrix, m, pop_size=100, generations=300):
 
     for gen in range(generations):
         fitnesses = [evaluate_fitness(ind, m, matrix) for ind in population]
+        fitness_total = [
+            sum(calculate_route_distance([0] + r + [0], matrix) for r in split_route(ind, m))
+            for ind in population
+        ]
         current_best = min(f[0] for f in fitnesses)
         fitness_per_generation.append(current_best)
 
+
                 # Early stopping logic
         if current_best < best_so_far - 1e-3:
-            best_so_far = current_best
+            best_fitness_overall = current_best
+            best_generation = gen
             no_improve_count = 0
         else:
             no_improve_count += 1
@@ -327,7 +336,7 @@ def solve_nsga2(matrix, m, pop_size=100, generations=300):
         # if gen % 10 == 0:
         #     print(f"[m={m}] Thế hệ {gen}, fitness tốt nhất: {current_best:.2f}")
 
-        if no_improve_count >= 50:
+        if no_improve_count >= 100:
             print(f"[m={m}] Dừng sớm tại thế hệ {gen}")
             break
 
@@ -346,7 +355,8 @@ def solve_nsga2(matrix, m, pop_size=100, generations=300):
     best_fitness, best_balance, best_routes = fitnesses[best_index]
     end_time = time.time()
     
-    return best_fitness, best_balance, best_routes, fitness_per_generation, end_time - start_time, gen + 1 if no_improve_count < 30 else gen
+    return best_fitness, best_balance, best_routes, fitness_per_generation, end_time - start_time, best_generation
+
 
 #--- GASA---
 def run_gasa():
