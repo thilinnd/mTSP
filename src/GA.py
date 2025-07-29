@@ -75,7 +75,7 @@ def local_search(route, dist_matrix, m):
     best_routes = tsp_split_dp(best, m, dist_matrix)
     best_fitness = fitness_func(best_routes, dist_matrix)
 
-    for _ in range(5):  # giảm từ 10 xuống 5 lần
+    for _ in range(5): 
         i, j = random.sample(range(len(route)), 2)
         if i == j:
             continue
@@ -92,7 +92,7 @@ def local_search(route, dist_matrix, m):
 # --- Hàm chính giải bài toán m-TSP ---
 def solve(dist_matrix_input, m, population_size=100, generations=300):
     global dist_matrix
-    dist_matrix = dist_matrix_input  # cho phép cached_route_distance truy cập được
+    dist_matrix = dist_matrix_input  
 
     n_cities = len(dist_matrix)
     population = [generate_random_individual(n_cities) for _ in range(population_size)]
