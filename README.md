@@ -45,7 +45,26 @@ The proposed method is compared with NSGA-II, RLGA, and GASA using six metrics: 
 
 ======
 ## V. Results
+1. RLGA outperformed all other algorithms in terms of: 
+* Shortest total travel distance
+* Lowest maximum route length
+* Fastest execution time (up to 10x faster)
 
+However, RLGA exhibited high imbalance, especially for  ```m = 2```, making it less suitable where equal workload distribution is critical.
+
+2. GA with Local Search offered the most balanced performance overall:
+* Achieved good route balance, especially at  ```m = 2``` and  ```m = 3```
+* Had high convergence speed and low iteration counts
+* Demonstrated strong performance across all metrics, making it the most practical and consistent approach
+
+3. NSGA-II performed well on route balancing, but failed to converge within 300-500 generations, limiting its effectiveness in real-world scenarios.
+4. GASA balanced speed and solution quality:
+* Fast convergence (9-21 iterations)
+* Moderate performance across other metrics, but lesss consistent in balancing routes
+5. Conclusion
+* RLGA is best for large-scale problems requiring fast, high-quality distance optimization
+* GASA is a solid middle ground for moderate performance and fast learning
+* GA with Local Search is the most balanced and reliable solution in this study - combining strong optimization, fast convergence, and fair workload distribution.
 ======
 ## VI. Key Contributions
 * Demonstrated the effectiveness of Reinforcement Learning Genetic Algorithm (RLGA) in solving complex m-TSP problems, outperforming traditional methods like GASA and NSGA-II in both solution quality and adaptability.
