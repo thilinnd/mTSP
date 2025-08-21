@@ -5,14 +5,13 @@ import time
 from typing import List, Tuple
 from tqdm import tqdm
 from joblib import Parallel, delayed
-
-
-def cached_route_distance(route_tuple):
-    return sum(dist_matrix[route_tuple[i]][route_tuple[i + 1]] for i in range(len(route_tuple) - 1)) + dist_matrix[route_tuple[-1]][0]
+SEED = 42  
+random.seed(SEED)
+np.random.seed(SEED)
 
 # --- Tính khoảng cách một route ---
 def calculate_route_distance(route, dist_matrix):
-    return cached_route_distance(tuple(route))
+    return sum(dist_matrix[route[i]][route[i + 1]] for i in range(len(route) - 1)) + dist_matrix[route[-1]][0]
 
 # --- Hàm gốc tsp_split_dp dùng DP (chính xác nhưng chậm) ---
 def tsp_split_dp_exact(route, m, dist_matrix):
