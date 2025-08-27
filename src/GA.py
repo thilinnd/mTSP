@@ -8,7 +8,6 @@ from joblib import Parallel, delayed
 SEED = 42  
 random.seed(SEED)
 np.random.seed(SEED)
-
 # --- Tính khoảng cách một route ---
 def calculate_route_distance(route, dist_matrix):
     return sum(dist_matrix[route[i]][route[i + 1]] for i in range(len(route) - 1)) + dist_matrix[route[-1]][0]
@@ -86,22 +85,14 @@ def local_search(route, dist_matrix, m):
 
     return best
 
-# --- Hàm chính giải bài toán m-TSP với Adaptive Mutation Rate ---
-def solve(dist_matrix_input, m, population_size=100, generations=300,
-          initial_mutation_rate=0.2, min_mutation=0.05, max_mutation=0.5,
-          elite_size=2):
-    global dist_matrix
-    dist_matrix = dist_matrix_input  
-
+# --- Hàm chính giải bài toán m-TSP ---
+def solve(dist_matrix, m, population_size=100, generations=300):
     n_cities = len(dist_matrix)
     population = [generate_random_individual(n_cities) for _ in range(population_size)]
 
     best_solution = None
     best_fitness = float('inf')
     fitness_per_generation = []
-
-    mutation_rate = initial_mutation_rate
-    previous_best_fitness = float('inf')
 
     for gen in tqdm(range(generations), desc=f"Chạy GA (m = {m})", ncols=80):
         # Tính fitness song song
@@ -113,58 +104,64 @@ def solve(dist_matrix_input, m, population_size=100, generations=300,
             for individual in population
         )
 
-        # Sắp xếp theo fitness tăng dần
-        evaluated.sort()
-        elites = [ind for _, ind in evaluated[:elite_size]]
-
-        # Cập nhật best
-        if evaluated[0][0] < best_fitness:
-            best_fitness = evaluated[0][0]
-            best_solution = evaluated[0][1]
+        # Cập nhật lời giải tốt nhất
+        for fitness, individual in evaluated:
+            if fitness < best_fitness:
+                best_fitness = fitness
+                best_solution = individual
 
         fitness_per_generation.append(best_fitness)
 
-        # --- Adaptive Mutation Rate ---
-        improvement = previous_best_fitness - best_fitness
-        if improvement < 1e-2:
-            mutation_rate = min(max_mutation, mutation_rate * 1.1)
-        else:
-            mutation_rate = max(min_mutation, mutation_rate * 0.9)
-        previous_best_fitness = best_fitness
-
         if gen % 20 == 0 or gen == generations - 1:
-            print(f"[Gen {gen:3d}] Best fitness: {best_fitness:.2f} | Mutation rate: {mutation_rate:.2f}")
+            print(f"[Gen {gen:3d}] Best fitness: {best_fitness:.2f}")
 
-        # Chọn nửa tốt nhất để sinh sản
+        # Chọn nửa tốt nhất
+        evaluated.sort(key=lambda x: x[0])  # sắp xếp theo fitness
         parents = [ind for _, ind in evaluated[:population_size // 2]]
 
-        # Sinh cá thể mới (trừ elite)
-        new_population = elites[:]
+        # Tạo thế hệ mới
+        new_population = []
         while len(new_population) < population_size:
             p1, p2 = random.sample(parents, 2)
             child = crossover(p1, p2)
-
-            # Xác suất đột biến theo adaptive mutation rate
-            if random.random() < mutation_rate:
-                child = local_search(child, dist_matrix, m)
-
+            child = local_search(child, dist_matrix, m)
             new_population.append(child)
 
         population = new_population
 
-    # Sau khi tối ưu xong → chia lại bằng tsp_split_dp_exact để có kết quả chính xác
+    # Sau khi tối ưu xong → chia lại bằng DP chính xác
     final_routes = tsp_split_dp_exact(best_solution, m, dist_matrix)
     total_distance = sum(calculate_route_distance(route, dist_matrix) for route in final_routes)
 
     return total_distance, final_routes, best_fitness, fitness_per_generation
 
-# --- Hàm phát hiện hội tụ ---
-def detect_convergence(generation_fitness, tolerance=1e-3, window=5):
-    """Detect convergence in fitness evolution"""
-    if len(generation_fitness) < window:
-        return len(generation_fitness)
-    for i in range(len(generation_fitness) - window):
-        window_values = generation_fitness[i:i+window]
-        if max(window_values) - min(window_values) < tolerance:
-            return i + window
-    return len(generation_fitness)
+def split_route(route, m):
+    chunk_size = len(route) // m
+    return [route[i*chunk_size:(i+1)*chunk_size] for i in range(m-1)] + [route[(m-1)*chunk_size:]]
+
+def evaluate_fitness(individual, m, matrix):
+    routes = split_route(individual, m)
+    route_lengths = [calculate_route_distance([0] + r + [0], matrix) for r in routes]
+    longest = max(route_lengths)
+    balance = np.std(route_lengths)
+    return longest, balance, routes
+
+def initialize_population(pop_size, num_cities):
+    return [random.sample(range(1, num_cities), num_cities - 1) for _ in range(pop_size)]
+
+def tournament_selection(population, fitnesses):
+    i, j = random.sample(range(len(population)), 2)
+    return population[i] if fitnesses[i][0] < fitnesses[j][0] else population[j]
+
+def crossover(parent1, parent2):
+    size = len(parent1)
+    a, b = sorted(random.sample(range(size), 2))
+    child_p1 = parent1[a:b]
+    child = [gene for gene in parent2 if gene not in child_p1]
+    return child[:a] + child_p1 + child[a:]
+
+def mutate(individual, mutation_rate=0.1):
+    for _ in range(int(len(individual) * mutation_rate)):
+        a, b = random.sample(range(len(individual)), 2)
+        individual[a], individual[b] = individual[b], individual[a]
+    return individual
