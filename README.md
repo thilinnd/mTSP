@@ -1,4 +1,4 @@
-# mTSP
+# A Comparative Study of Genetic Algorithm Variants in Min–Max Optimization: Evidence from Vietnamese Business
 
 ## I. Introduction
 Fresh dairy products such as Vinamilk yogurt have a short shelf life - approximately 45 days, making it essential to optimize delivery time and logistics efficiency. Our project addresses the Multiple Traveling Salesmen Problem (m-TSP) in the context of cold chain logistics for milk distribution in Vietnam.  
