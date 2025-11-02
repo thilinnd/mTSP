@@ -25,7 +25,7 @@ This project aims to:
 6. Contribute to the research on hybrid optimization techniques, showcasing the effectiveness of GAs in solving complex, real-world m-TSP instances.
 
 ======
-## IV. Methodlogy
+## IV. Methodology
 **1. Data Preprocessing**
 
 The study uses data from 126 Vinamilk stores in Hanoi, with geographic coordinates collected manually. A distance matrix is built using the Open Source Routing Machine (OSRM), deployed locally to calculate actual driving distances based on Vietnam's road network. To bypass OSRM's query limits, data is processed in batches and aggregated into a complete matrix.
